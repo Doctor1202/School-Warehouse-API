@@ -6,103 +6,85 @@ import { stockMovementsSchema } from "../stock-movements/schema";
 
 export const issueRoute = new Elysia();
 
-issueRoute.post("/issues", async ({ body, set }) => {
+issueRoute.post("/issues", async ({ body, status }) => {
   try {
-    const data = stockMovementsSchema.parse(body);
+    const data = stockMovementsSchema.safeParse(body);
+    if (!data.success) return status(400, "Invalid payload");
+    if (data.data.quantity < 0) return status(400, "Bad Request");
 
-    if (data.quantity < 0) {
-      set.status = 400;
-      return { error: "Invalid params" };
-    }
     //Перевіряє чи є предмет та студент
-    const itemCheck = await db.select().from(items).where(eq(items.id, data.itemId)).limit(1);
+    const [itemCheck] = await db.select().from(items).where(eq(items.id, data.data.itemId)).limit(1);
+    if (!itemCheck) return status(404, "Item not found");
 
-    if (!itemCheck[0]) {
-      set.status = 404;
-      return { error: "Item not found." };
-    }
-
-    const studentCheck = await db.select().from(students).where(eq(students.id, data.studentId)).limit(1);
-    if (!studentCheck[0]) {
-      set.status = 404;
-      return { error: "Student not found." };
-    }
+    const [studentCheck] = await db.select().from(students).where(eq(students.id, data.data.studentId)).limit(1);
+    if (!studentCheck) return status(404, "Student not found");
 
     //перевірити що предмет не перевищував ліміт
-    const itemIssueCheck = await db.select().from(issueRules).where(eq(issueRules.itemId, data.itemId)).limit(1);
+    const [itemIssueCheck] = await db.select().from(issueRules).where(eq(issueRules.itemId, data.data.itemId)).limit(1);
+    if (!itemIssueCheck) return status(404, "Issue rule not found");
 
-    if (!itemIssueCheck[0]) {
-      set.status = 404;
-      return { error: "Issue rule not found" };
-    }
-
-    let days = 0;
-
-    switch (itemIssueCheck[0].period) {
-      case "day":
-        days = 1;
-        break;
-      case "week":
-        days = 7;
-        break;
-      case "month":
-        days = 30;
-        break;
+    function dataDays(period: string): number {
+      switch (period) {
+        case "day": {
+          return 1;
+        }
+        case "week": {
+          return 7;
+        }
+        case "month": {
+          return 30;
+        }
+        default: {
+          return 1;
+        }
+      }
     }
 
     const fromDate = new Date();
 
-    fromDate.setDate(fromDate.getDate() - days);
+    fromDate.setDate(fromDate.getDate() - dataDays(itemIssueCheck.period));
 
     const issuedMovements = await db
       .select()
       .from(stockMovements)
       .where(
         and(
-          eq(stockMovements.itemId, data.itemId),
+          eq(stockMovements.itemId, data.data.itemId),
           eq(stockMovements.type, "issue"),
           gte(stockMovements.createdAt, fromDate),
         ),
       )
       .limit(1);
 
-    if (data.quantity > itemCheck[0].currentStock) {
-      set.status = 409;
-      return { error: "Limit overload" };
-    }
+    if (data.data.quantity > itemCheck.currentStock) return status(409, "Limit overload");
 
     const totalIssued = issuedMovements.reduce((sum, movement) => sum + movement.quantity, 0);
+    if (totalIssued + data.data.quantity > itemIssueCheck.limit) return status(409, "Issue limit exceeded");
 
-    if (totalIssued + data.quantity > itemIssueCheck[0].limit) {
-      set.status = 409;
-      return { error: "Issue limit exceeded" };
-    }
-
-    const result = itemCheck[0].currentStock - data.quantity;
+    const result = itemCheck.currentStock - data.data.quantity;
 
     const transactionDb = await db.transaction(async tx => {
       const issue = await tx
         .insert(stockMovements)
         .values({
-          studentId: data.studentId,
-          itemId: data.itemId,
+          studentId: data.data.studentId,
+          itemId: data.data.itemId,
           type: "issue",
-          quantity: data.quantity,
+          quantity: data.data.quantity,
         })
         .returning();
 
       const itemResult = await tx
         .update(items)
         .set({ currentStock: result })
-        .where(eq(items.id, data.itemId))
+        .where(eq(items.id, data.data.itemId))
         .returning();
 
       return { issue, itemResult };
     });
 
     return transactionDb;
-  } catch (e) {
-    set.status = 400;
-    return { error: "Invalid payload", e };
+  } catch {
+    return status(400, "Bad request");
   }
 });

@@ -1,6 +1,6 @@
 import z from "zod";
 
 export const restockSchema = z.object({
-  itemId: z.coerce.string(),
+  itemId: z.uuid(),
   quantity: z.coerce.number(),
 });

@@ -14,64 +14,49 @@ classesRoute
 
     return allClasses;
   })
-  .get("/classes/:id", async ({ params, set }) => {
-    try {
-      const { id } = classIdSchema.parse(params);
+  .get("/classes/:id", async ({ params, status }) => {
+    const id = classIdSchema.safeParse(params);
+    if (!id.success) return status(400, "Invalid payload");
 
-      const classById = await db.select().from(classes).where(eq(classes.id, id)).limit(1);
+    const [classById] = await db.select().from(classes).where(eq(classes.id, id.data.id)).limit(1);
+    if (!classById) return status(404, "Class not found");
 
-      if (!classById[0]) {
-        set.status = 404;
-        return { error: "Class not found" };
-      }
-      return classById;
-    } catch {
-      set.status = 400;
-      return { error: "Invalid params" };
-    }
+    return classById;
   })
-  .post("/classes", async ({ body, set }) => {
-    try {
-      const data = createClassSchema.parse(body);
+  .post("/classes", async ({ body, status }) => {
+    const data = createClassSchema.safeParse(body);
+    if (!data.success) return status(400, "Invalid payload");
 
-      const [newClass] = await db
-        .insert(classes)
-        .values({
-          name: data.name,
-        })
-        .returning();
+    const [newClass] = await db
+      .insert(classes)
+      .values({
+        name: data.data.name,
+      })
+      .returning();
 
-      return newClass;
-    } catch {
-      set.status = 400;
-      return { error: "Invalid payload" };
-    }
+    return newClass;
   })
-  .patch("/classes/:id", async ({ body, params, set }) => {
-    try {
-      const { id } = classIdSchema.parse(params);
-      const data = createClassSchema.parse(body);
+  .patch("/classes/:id", async ({ body, params, status }) => {
+    const id = classIdSchema.safeParse(params);
+    if (!id.success) return status(400, "Invalid payload");
 
-      const classeNameUpdate = await db.update(classes).set({ name: data.name }).where(eq(classes.id, id)).returning();
+    const data = createClassSchema.safeParse(body);
+    if (!data.success) return status(400, "Invalid payload");
 
-      return classeNameUpdate;
-    } catch {
-      set.status = 400;
-      return { error: "Invalid payload" };
-    }
+    const classeNameUpdate = await db
+      .update(classes)
+      .set({ name: data.data.name })
+      .where(eq(classes.id, id.data.id))
+      .returning();
+
+    return classeNameUpdate;
   })
-  .delete("/classes/:id", async ({ params, set }) => {
-    try {
-      const { id } = classIdSchema.parse(params);
-      const classDelete = await db.delete(classes).where(eq(classes.id, id)).returning();
+  .delete("/classes/:id", async ({ params, status }) => {
+    const id = classIdSchema.safeParse(params);
+    if (!id.success) return status(400, "Bad Request");
 
-      if (!classDelete[0]) {
-        set.status = 404;
-        return { error: "Class not found" };
-      }
-      return classDelete;
-    } catch {
-      set.status = 400;
-      return { error: "Invalid payload" };
-    }
+    const [classDelete] = await db.delete(classes).where(eq(classes.id, id.data.id)).returning();
+    if (!classDelete) return status(404, "Class Not Found");
+
+    return classDelete;
   });

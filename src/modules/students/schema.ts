@@ -6,7 +6,7 @@ export const studentsSchema = z.object({
 });
 
 export const studentParamsSchema = z.object({
-  id: z.string().min(1),
+  id: z.uuid().min(1),
 });
 
 export const studentSearchSchema = z.object({

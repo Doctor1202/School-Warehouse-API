@@ -6,5 +6,5 @@ export const issueRulesSchema = z.object({
 });
 
 export const paramsSchema = z.object({
-  id: z.coerce.string(),
+  id: z.uuid(),
 });

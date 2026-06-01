@@ -7,85 +7,78 @@ import { issueRulesSchema, paramsSchema } from "../issue/schema";
 export const issueRuleRoute = new Elysia();
 
 issueRuleRoute
-  .post("/items/:id/rule", async ({ body, params, set }) => {
+  .post("/items/:id/rule", async ({ body, params, status }) => {
     try {
-      const { id } = paramsSchema.parse(params);
-      const data = issueRulesSchema.parse(body);
+      const id = paramsSchema.safeParse(params);
+      if (!id.success) return status(400, "Bad Request");
 
-      const item = await db.select().from(items).where(eq(items.id, id)).limit(1);
+      const data = issueRulesSchema.safeParse(body);
+      if (!data.success) return status(400, "Bad Request");
 
-      if (!item[0]) {
-        set.status = 404;
-        return { error: "Item not found" };
-      }
+      const [item] = await db.select().from(items).where(eq(items.id, id.data.id)).limit(1);
+      if (!item) return status(404, "Item not found");
 
-      const ruleCheckIsCreatedBefore = await db.select().from(issueRules).where(eq(issueRules.itemId, id)).limit(1);
+      const [ruleCheckIsCreatedBefore] = await db
+        .select()
+        .from(issueRules)
+        .where(eq(issueRules.itemId, id.data.id))
+        .limit(1);
 
-      if (ruleCheckIsCreatedBefore[0]) {
-        const issueRulesListOfAll = await db
+      if (ruleCheckIsCreatedBefore) {
+        const [issueRulesListOfAll] = await db
           .select()
           .from(issueRules)
-          .where(eq(issueRules.id, ruleCheckIsCreatedBefore[0].id));
+          .where(eq(issueRules.id, ruleCheckIsCreatedBefore.id));
 
-        if (issueRulesListOfAll[0]) {
-          set.status = 400;
-          return { error: "Rule is already created for item" };
-        }
+        if (issueRulesListOfAll) return status(400, "Rule is already created for item");
       }
 
       const [rule] = await db
         .insert(issueRules)
         .values({
-          itemId: id,
-          limit: data.limit,
-          period: data.period,
+          itemId: id.data.id,
+          limit: data.data.limit,
+          period: data.data.period,
         })
         .returning();
 
-      const ruleCheck = await db.select().from(issueRules).where(eq(issueRules.itemId, id)).limit(1);
-
-      if (!ruleCheck[0]) {
-        set.status = 400;
-        return { error: "Rule not found" };
-      }
+      const [ruleCheck] = await db.select().from(issueRules).where(eq(issueRules.itemId, id.data.id)).limit(1);
+      if (!ruleCheck) return status(404, "Rule not found ");
 
       return rule;
     } catch {
-      set.status = 400;
-      return { error: "Invalid payload" };
+      return status(400, "Invalid payload");
     }
   })
-  .patch("/items/:id/rule", async ({ body, params, set }) => {
+  .patch("/items/:id/rule", async ({ body, params, status }) => {
     try {
-      const { id } = paramsSchema.parse(params);
+      const id = paramsSchema.safeParse(params);
+      if (!id.success) return status(400, "Bad Request");
 
-      const itemCheck = await db.select().from(items).where(eq(items.id, id)).limit(1);
-      if (!itemCheck[0]) {
-        set.status = 404;
-        return { error: "Item not found" };
-      }
+      const data = issueRulesSchema.safeParse(body);
+      if (!data.success) return status(400, "Bad Request");
 
-      const data = issueRulesSchema.parse(body);
-      const issueRulesCheck = await db.select().from(issueRules).where(eq(issueRules.itemId, id)).limit(1);
+      const itemCheck = await db.select().from(items).where(eq(items.id, id.data.id)).limit(1);
+      if (!itemCheck[0]) return status(404, "Item not found");
 
-      if (!issueRulesCheck[0]) {
-        set.status = 404;
-        return { error: "Issue rule not found" };
-      }
+      const [issueRulesCheck] = await db.select().from(issueRules).where(eq(issueRules.itemId, id.data.id)).limit(1);
+      if (!issueRulesCheck) return status(404, "Issue rule not found");
 
-      const issueRuleChange = await db
-        .update(issueRules)
-        .set({
-          limit: data.limit,
-          period: data.period,
-        })
-        .where(eq(issueRules.itemId, id))
-        .returning();
+      const result = await db.transaction(async tx => {
+        const issueRuleChange = await tx
+          .update(issueRules)
+          .set({
+            limit: data.data.limit,
+            period: data.data.period,
+          })
+          .where(eq(issueRules.itemId, id.data.id))
+          .returning();
 
-      return issueRuleChange;
+        return issueRuleChange;
+      });
+
+      return result;
     } catch {
-      set.status = 400;
-
-      return { error: "Invalid payload" };
+      return status(400, "Invalid payload");
     }
   });

@@ -6,26 +6,27 @@ import { parsedQuaryStockMovementsSchema } from "./schema";
 
 export const stockMovementRoute = new Elysia();
 
-stockMovementRoute.get("/stock-movements", async ({ query, set }) => {
+stockMovementRoute.get("/stock-movements", async ({ query, status }) => {
   try {
-    const parsedQuery = parsedQuaryStockMovementsSchema.parse(query);
+    const parsedQuery = parsedQuaryStockMovementsSchema.safeParse(query);
+    if (!parsedQuery.success) return status(400, "Bad Request");
 
-    const sortField = parsedQuery.filter ?? "createdAt";
-    const sortOrder = parsedQuery.sort ?? "desc";
+    const sortField = parsedQuery.data.filter ?? "createdAt";
+    const sortOrder = parsedQuery.data.sort ?? "desc";
 
     const orderColumn = sortField === "quantity" ? stockMovements.quantity : stockMovements.createdAt;
 
-    const offset = (parsedQuery.page - 1) * parsedQuery.pageSize;
+    const offset = (parsedQuery.data.page - 1) * parsedQuery.data.pageSize;
 
     const baseQuery = db
       .select()
       .from(stockMovements)
       .orderBy(sortOrder === "asc" ? asc(orderColumn) : desc(orderColumn))
-      .limit(parsedQuery.pageSize)
+      .limit(parsedQuery.data.pageSize)
       .offset(offset);
 
-    if (parsedQuery.type) {
-      const filteredListOfStockMovements = await baseQuery.where(eq(stockMovements.type, parsedQuery.type));
+    if (parsedQuery.data.type) {
+      const filteredListOfStockMovements = await baseQuery.where(eq(stockMovements.type, parsedQuery.data.type));
 
       return filteredListOfStockMovements;
     }
@@ -34,8 +35,6 @@ stockMovementRoute.get("/stock-movements", async ({ query, set }) => {
 
     return listOfStockMovements;
   } catch {
-    set.status = 400;
-
-    return { error: "Invalid params" };
+    return status(400, "Invalid payload");
   }
 });

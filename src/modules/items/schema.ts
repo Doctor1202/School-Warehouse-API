@@ -11,5 +11,5 @@ export const itemQuery = z.object({
 });
 
 export const itemParamsSchema = z.object({
-  id: z.coerce.string().min(1),
+  id: z.uuid().min(1),
 });

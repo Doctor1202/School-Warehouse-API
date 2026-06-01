@@ -8,78 +8,63 @@ import { restockSchema } from "./schema";
 export const restockRoutes = new Elysia();
 
 restockRoutes
-  .post("/restocks", async ({ body, set }) => {
+  .post("/restocks", async ({ body, status }) => {
     try {
-      const data = restockSchema.parse(body);
+      const data = restockSchema.safeParse(body);
+      if (!data.success) return status(400, "Bad Request");
 
-      const item = await db.select().from(items).where(eq(items.id, data.itemId));
+      const [item] = await db.select().from(items).where(eq(items.id, data.data.itemId));
 
-      if (!item[0]) {
-        set.status = 404;
-        return { error: "Item not found" };
-      }
+      if (!item) return status(404, "Item not found");
 
-      const itemQuantity = item[0].currentStock;
+      const itemQuantity = item.currentStock;
 
-      const currentItemQuantity = itemQuantity + data.quantity;
+      const currentItemQuantity = itemQuantity + data.data.quantity;
 
       const result = await db.transaction(async tx => {
         const itemUpdateResult = await tx
           .update(items)
           .set({ currentStock: currentItemQuantity })
-          .where(eq(items.id, data.itemId))
+          .where(eq(items.id, data.data.itemId))
           .returning();
 
-        return { itemUpdateResult };
+        const stockMovementResult = await tx
+          .insert(stockMovements)
+          .values({
+            itemId: data.data.itemId,
+            quantity: data.data.quantity,
+            type: "restock",
+          })
+          .returning();
+        return { itemUpdateResult, stockMovementResult };
       });
-      const stockMovementResult = await db
-        .insert(stockMovements)
-        .values({
-          itemId: data.itemId,
-          quantity: data.quantity,
-          type: "restock",
-        })
-        .returning();
-      return { stockMovementResult, result };
-    } catch (e) {
-      set.status = 400;
-      return { error: "Invalid payload", e };
+      return { result };
+    } catch {
+      return status(400, "Invalid payload");
     }
   })
-  .post("/issues/:id/return", async ({ params, set }) => {
+  .post("/issues/:id/return", async ({ params, status }) => {
     try {
-      const { id } = paramsSchema.parse(params);
+      const id = paramsSchema.safeParse(params);
+      if (!id.success) return status(400, "Bad Request");
 
-      const item = await db.select().from(items).where(eq(items.id, id));
+      const [item] = await db.select().from(items).where(eq(items.id, id.data.id));
+      if (!item) return status(404, "Item not found");
 
-      if (!item[0]) {
-        set.status = 404;
-        return { error: "Item not found" };
-      }
-
-      const isIssueReal = await db.select().from(issueRules).where(eq(issueRules.itemId, id));
-
-      if (!isIssueReal) {
-        set.status = 404;
-        return { error: "Issue not found" };
-      }
+      const [isIssueReal] = await db.select().from(issueRules).where(eq(issueRules.itemId, id.data.id));
+      if (!isIssueReal) return status(404, "Issue not found");
 
       //Повертаю все до InitialStock
-      const itemInitialStock = item[0].initialStock;
+      const itemInitialStock = item.initialStock;
+      const currentToInitial = item.initialStock - item.currentStock;
 
-      const currentToInitial = item[0].initialStock - item[0].currentStock;
-
-      if (!item[0].initialStock) {
-        set.status = 404;
-
-        return { error: "Item not found" };
-      }
+      if (!item.initialStock) return status(404, "Item not found");
 
       const result = await db.transaction(async tx => {
         const insertResult = await tx
           .insert(stockMovements)
           .values({
-            itemId: id,
+            itemId: id.data.id,
             quantity: currentToInitial,
             type: "return",
           })
@@ -87,7 +72,7 @@ restockRoutes
         const updateResult = await tx
           .update(items)
           .set({ currentStock: itemInitialStock })
-          .where(eq(items.id, id))
+          .where(eq(items.id, id.data.id))
           .returning();
 
         // const updateIssue = await tx.update();
@@ -95,8 +80,7 @@ restockRoutes
       });
 
       return result;
-    } catch (e) {
-      set.status = 400;
-      return { error: "Invalid payload", e };
+    } catch {
+      return status(400, "Invalid payload");
     }
   });

@@ -1,8 +1,8 @@
 import z from "zod";
 
 export const stockMovementsSchema = z.object({
-  itemId: z.coerce.string(),
-  studentId: z.coerce.string(),
+  itemId: z.uuid(),
+  studentId: z.uuid(),
   type: z.enum(["issue", "return", "add", "remove"]).optional(),
   quantity: z.coerce.number(),
 });

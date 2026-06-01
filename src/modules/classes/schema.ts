@@ -5,5 +5,5 @@ export const createClassSchema = z.object({
 });
 
 export const classIdSchema = z.object({
-  id: z.coerce.string(),
+  id: z.uuid(),
 });
